@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef, createContext, useContext } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ActivityIndicator, StatusBar, Switch, Share, Alert, ScrollView, FlatList, Vibration } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ActivityIndicator, StatusBar, Switch, Share, Alert, ScrollView, Vibration } from 'react-native';
 import { LightSensor } from 'expo-sensors';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
 import { NavigationContainer } from '@react-navigation/native';
-import { createDrawerNavigator, DrawerContentScrollView, DrawerItemList } from '@react-navigation/drawer';
+import { createDrawerNavigator } from '@react-navigation/drawer';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'; // Assuming expo vector icons are available
 
-// --- Context for Settings (Theme, Vibration) ---
+// --- Global Log Context ---
+const LogContext = createContext<{ logs: string[]; addLog: (msg: string) => void }>({ logs: [], addLog: () => {} });
+
+// --- Settings Context ---
 const SettingsContext = createContext({
   isDarkMode: true,
   vibrationEnabled: true,
@@ -13,46 +17,16 @@ const SettingsContext = createContext({
   toggleVibration: () => {},
 });
 
-// --- Debug log store (module-level, survives screen navigation) ---
-type LogEntry = { id: number; t: number; tag: string; msg: string };
-const LOG_CAP = 400;
-const logStore = {
-  entries: [] as LogEntry[],
-  listeners: new Set<() => void>(),
-  nextId: 1,
-  add(tag: string, msg: string) {
-    logStore.entries = [...logStore.entries, { id: logStore.nextId++, t: Date.now(), tag, msg }];
-    if (logStore.entries.length > LOG_CAP) logStore.entries = logStore.entries.slice(-LOG_CAP);
-    logStore.listeners.forEach((l) => l());
-  },
-  clear() {
-    logStore.entries = [];
-    logStore.listeners.forEach((l) => l());
-  },
-  subscribe(l: () => void) {
-    logStore.listeners.add(l);
-    return () => { logStore.listeners.delete(l); };
-  },
-};
-
-function logEvent(tag: string, msg: string) { logStore.add(tag, msg); }
-
-function useDebugLogs() {
-  const [, force] = useState(0);
-  useEffect(() => logStore.subscribe(() => force((n) => n + 1)), []);
-  return logStore.entries;
-}
-
-function formatTime(t: number) {
-  const d = new Date(t);
-  const p = (n: number) => String(n).padStart(2, '0');
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
-}
-
 // --- Main App Component ---
 export default function App() {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
+  const [logs, setLogs] = useState<string[]>([]);
+  
+  const addLog = (msg: string) => {
+    const time = new Date().toLocaleTimeString();
+    setLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
+  };
 
   return (
     <SettingsContext.Provider value={{
@@ -60,32 +34,44 @@ export default function App() {
       toggleDarkMode: () => setIsDarkMode(!isDarkMode),
       toggleVibration: () => setVibrationEnabled(!vibrationEnabled)
     }}>
-      <NavigationContainer>
-        <Drawer.Navigator 
-          initialRouteName="Home"
-          screenOptions={{
-            headerStyle: { backgroundColor: isDarkMode ? '#0a1f1a' : '#ffffff' },
-            headerTintColor: isDarkMode ? '#ffffff' : '#000000',
-            drawerStyle: { backgroundColor: isDarkMode ? '#0f2e24' : '#f0f0f0' },
-            drawerActiveTintColor: '#4cd964',
-            drawerInactiveTintColor: isDarkMode ? '#a0b0a8' : '#555555',
-          }}
-        >
-          <Drawer.Screen name="Home" component={HomeScreen} />
-          <Drawer.Screen name="Settings" component={SettingsScreen} />
-          <Drawer.Screen name="Help" component={HelpScreen} />
-          <Drawer.Screen name="Share App" component={ShareScreen} />
-          <Drawer.Screen name="Debug Logs" component={DebugLogScreen} />
-          <Drawer.Screen name="Prayer" component={PrayerScreen} options={{ drawerItemStyle: { display: 'none' } }} />
-        </Drawer.Navigator>
-      </NavigationContainer>
+      <LogContext.Provider value={{ logs, addLog }}>
+        <NavigationContainer>
+          <Drawer.Navigator 
+            initialRouteName="Home"
+            screenOptions={({ route }) => ({
+              headerStyle: { backgroundColor: isDarkMode ? '#0a1f1a' : '#ffffff', elevation: 0, shadowOpacity: 0 },
+              headerTintColor: isDarkMode ? '#ffffff' : '#000000',
+              drawerStyle: { backgroundColor: isDarkMode ? '#0f2e24' : '#f0f0f0', width: 280 },
+              drawerActiveTintColor: '#4cd964',
+              drawerInactiveTintColor: isDarkMode ? '#a0b0a8' : '#555555',
+              drawerLabelStyle: { fontSize: 16, fontWeight: '600', marginLeft: -10 },
+              drawerIcon: ({ color, size, focused }) => {
+                let iconName;
+                if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
+                else if (route.name === 'Settings') iconName = focused ? 'settings' : 'settings-outline';
+                else if (route.name === 'Help') iconName = focused ? 'help-circle' : 'help-circle-outline';
+                else if (route.name === 'Share App') iconName = focused ? 'share-social' : 'share-social-outline';
+                else if (route.name === 'Debug Logs') iconName = focused ? 'terminal' : 'terminal-outline';
+                return <Ionicons name={iconName as any} size={size} color={color} />;
+              },
+            })}
+          >
+            <Drawer.Screen name="Home" component={HomeScreen} />
+            <Drawer.Screen name="Settings" component={SettingsScreen} />
+            <Drawer.Screen name="Debug Logs" component={LogsScreen} />
+            <Drawer.Screen name="Help" component={HelpScreen} />
+            <Drawer.Screen name="Share App" component={ShareScreen} />
+            <Drawer.Screen name="Prayer" component={PrayerScreen} options={{ drawerItemStyle: { display: 'none' }, headerShown: false }} />
+          </Drawer.Navigator>
+        </NavigationContainer>
+      </LogContext.Provider>
     </SettingsContext.Provider>
   );
 }
 
 const Drawer = createDrawerNavigator();
 
-// --- 1. Home Screen (Rakaat Selection) ---
+// --- 1. Home Screen ---
 function HomeScreen({ navigation }: any) {
   const { isDarkMode } = useContext(SettingsContext);
   const theme = getTheme(isDarkMode);
@@ -96,8 +82,13 @@ function HomeScreen({ navigation }: any) {
 
   return (
     <SafeAreaView style={[styles.container, theme.container]}>
-      <Text style={[styles.title, theme.text]}>Rakaat Tracker</Text>
-      <Text style={[styles.subtitle, theme.subtitle]}>Choose rakaat to start</Text>
+      <View style={styles.heroContainer}>
+        <MaterialCommunityIcons name="mosque" size={100} color={isDarkMode ? '#4cd964' : '#1b4a3b'} />
+        <Text style={[styles.title, theme.text]}>Rakaat Tracker</Text>
+        <Text style={[styles.subtitle, theme.subtitle]}>Enhancing Your Salah Experience</Text>
+      </View>
+      
+      <Text style={[styles.sectionTitle, theme.text]}>Choose rakaat to start</Text>
       
       <View style={styles.buttonRow}>
         <TouchableOpacity style={[styles.rakaatButton, theme.rakaatButton]} onPress={() => startPrayer(2)}>
@@ -110,16 +101,17 @@ function HomeScreen({ navigation }: any) {
           <Text style={[styles.rakaatButtonText, theme.text]}>Four</Text>
         </TouchableOpacity>
       </View>
-      <TouchableOpacity style={[styles.rakaatButton, theme.rakaatButton, { width: 200, marginTop: 10 }]} onPress={() => startPrayer(20)}>
+      <TouchableOpacity style={[styles.rakaatButton, theme.rakaatButton, { width: '60%', marginTop: 15 }]} onPress={() => startPrayer(20)}>
         <Text style={[styles.rakaatButtonText, theme.text]}>Taraweeh</Text>
       </TouchableOpacity>
     </SafeAreaView>
   );
 }
 
-// --- 2. Prayer Screen (Sensor & Counting) ---
+// --- 2. Prayer Screen ---
 function PrayerScreen({ route, navigation }: any) {
   const { isDarkMode, vibrationEnabled } = useContext(SettingsContext);
+  const { addLog } = useContext(LogContext);
   const theme = getTheme(isDarkMode);
   const { targetRakaat } = route.params;
   
@@ -134,41 +126,35 @@ function PrayerScreen({ route, navigation }: any) {
   const [darkThreshold, setDarkThreshold] = useState(50);
   const [lightThreshold, setLightThreshold] = useState(100);
 
-  // Latest lux (read by the calibration timer) + throttle for the live lux log
+  // Latest lux, read by the calibration timer. Kept in a ref so live light
+  // changes do not restart the 3s countdown (which would stall calibration).
   const lightRef = useRef(0);
-  const lastLuxLog = useRef(0);
 
-  // Sensor Logic
   useEffect(() => {
-    let subscription: { remove: () => void } | undefined;
+    let subscription: any;
     LightSensor.isAvailableAsync().then((available) => {
-      logEvent('SENSOR', available ? 'Light sensor available' : 'Light sensor NOT available');
       if (available) {
         subscription = LightSensor.addListener(({ illuminance }) => {
           const currentLight = Math.round(illuminance);
           lightRef.current = currentLight;
           setLightLevel(currentLight);
-          if (Date.now() - lastLuxLog.current >= 1000) {
-            lastLuxLog.current = Date.now();
-            logEvent('LUX', `${currentLight} lux`);
-          }
+          
           if (appState === 'PRAYING') {
             if (currentLight < darkThreshold && !isSujud) {
               setIsSujud(true);
-              logEvent('SAJDAH', `dark ${currentLight} < ${darkThreshold} → In Sujud`);
+              addLog(`Sujud START (Lux: ${currentLight})`);
               if (vibrationEnabled) Vibration.vibrate(50);
             } else if (currentLight > lightThreshold && isSujud) {
               setIsSujud(false);
-              logEvent('SAJDAH', `light ${currentLight} > ${lightThreshold} → Standing`);
+              addLog(`Sujud END (Lux: ${currentLight})`);
               if (vibrationEnabled) Vibration.vibrate(50);
               setSajdahCount((prev) => {
                 const newCount = prev + 1;
                 if (newCount === 2) {
                   setRakaat((r) => {
                     const nextRakaat = r + 1;
-                    logEvent('RAKAAT', `completed → ${nextRakaat} / ${targetRakaat}`);
+                    addLog(`Rakaat ${nextRakaat} completed!`);
                     if (nextRakaat === targetRakaat) {
-                      logEvent('DONE', 'Prayer complete');
                       Alert.alert('Prayer Complete', 'You have finished your prayer.');
                       navigation.goBack();
                     }
@@ -186,37 +172,20 @@ function PrayerScreen({ route, navigation }: any) {
     return () => { if (subscription) subscription.remove(); };
   }, [appState, isSujud, darkThreshold, lightThreshold]);
 
-  // Calibration Timer — samples the latest lux via a ref, so live light changes
-  // do NOT restart the 3s timer (they would otherwise reset it forever).
   useEffect(() => {
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let timer: any;
     if (appState === 'CALIBRATING_AMBIENT') {
-      logEvent('STATE', 'Calibrating ambient light (3s)…');
-      timer = setTimeout(() => {
-        const lv = lightRef.current;
-        setAmbientLight(lv);
-        logEvent('CAL', `ambient = ${lv} lux`);
-        setAppState('CALIBRATING_SUJUD');
-      }, 3000);
+      timer = setTimeout(() => { setAmbientLight(lightRef.current); setAppState('CALIBRATING_SUJUD'); }, 3000);
     } else if (appState === 'CALIBRATING_SUJUD') {
-      logEvent('STATE', 'Simulating sujud — cover the sensor (3s)…');
       timer = setTimeout(() => {
         const lv = lightRef.current;
         setSujudLight(lv);
         const midPoint = (lv + ambientLight) / 2;
-        setDarkThreshold(midPoint - 10);
-        setLightThreshold(midPoint + 10);
-        logEvent('CAL', `sujud = ${lv} lux → dark<${midPoint - 10}, light>${midPoint + 10}`);
-        setAppState('PRAYING');
-        logEvent('STATE', `Praying started (target ${targetRakaat} rakaat)`);
+        setDarkThreshold(midPoint - 10); setLightThreshold(midPoint + 10); setAppState('PRAYING');
       }, 3000);
     }
     return () => clearTimeout(timer);
-  }, [appState, ambientLight, targetRakaat]);
-
-  useEffect(() => {
-    logEvent('STATE', `Prayer screen opened (target ${targetRakaat} rakaat)`);
-  }, []);
+  }, [appState, ambientLight]);
 
   useEffect(() => { activateKeepAwakeAsync(); return () => { deactivateKeepAwake(); }; }, []);
 
@@ -224,7 +193,7 @@ function PrayerScreen({ route, navigation }: any) {
     return (
       <View style={[styles.center, theme.container]}>
         <Text style={[styles.calibrationTitle, theme.text]}>
-          {appState === 'CALIBRATING_AMBIENT' ? 'Calibrating Ambient Light...' : 'Simulating Sujud...'}
+          {appState === 'CALIBRATING_AMBIENT' ? 'Calibrating...' : 'Simulating Sujud...'}
         </Text>
         <ActivityIndicator size="large" color="#4cd964" style={{ marginVertical: 30 }} />
         <Text style={[styles.calibrationHint, theme.subtitle]}>
@@ -237,14 +206,23 @@ function PrayerScreen({ route, navigation }: any) {
 
   return (
     <SafeAreaView style={[styles.center, theme.container]}>
-      <Text style={[styles.prayerTitle, theme.subtitle]}>Rakaat {rakaat} / {targetRakaat}</Text>
-      <Text style={[styles.prayerCount, theme.text]}>{rakaat}</Text>
-      <Text style={[styles.sajdahText, theme.subtitle]}>Sajdah: {sajdahCount} / 2</Text>
+      <Text style={[styles.prayerTitle, theme.subtitle]}>Target: {targetRakaat} Rakaat</Text>
+      
+      <View style={styles.counterContainer}>
+        <Text style={[styles.prayerCount, theme.text]}>{rakaat}</Text>
+        <Text style={[styles.counterLabel, theme.subtitle]}>Rakaat</Text>
+      </View>
+      
+      <View style={styles.counterContainer}>
+        <Text style={[styles.sajdahCount, theme.text]}>{sajdahCount}</Text>
+        <Text style={[styles.counterLabel, theme.subtitle]}>Sujud</Text>
+      </View>
+
       <Text style={[styles.statusText, { color: isSujud ? '#f1c40f' : '#4cd964' }]}>
         {isSujud ? '🧎 In Sujud' : '🧍 Standing'}
       </Text>
       
-      <TouchableOpacity style={styles.stopButton} onPress={() => { logEvent('STATE', 'Prayer stopped by user'); navigation.goBack(); }}>
+      <TouchableOpacity style={styles.stopButton} onPress={() => { addLog('Prayer stopped.'); navigation.goBack(); }}>
         <Text style={styles.stopButtonText}>Stop Prayer</Text>
       </TouchableOpacity>
     </SafeAreaView>
@@ -260,12 +238,12 @@ function SettingsScreen() {
     <SafeAreaView style={[styles.container, theme.container]}>
       <Text style={[styles.title, theme.text]}>Settings</Text>
       
-      <View style={styles.settingRow}>
+      <View style={[styles.settingRow, theme.settingRowBorder]}>
         <Text style={[styles.settingLabel, theme.text]}>Night Mode</Text>
         <Switch value={isDarkMode} onValueChange={toggleDarkMode} trackColor={{ false: '#767577', true: '#4cd964' }} />
       </View>
 
-      <View style={styles.settingRow}>
+      <View style={[styles.settingRow, theme.settingRowBorder]}>
         <Text style={[styles.settingLabel, theme.text]}>Vibration</Text>
         <Switch value={vibrationEnabled} onValueChange={toggleVibration} trackColor={{ false: '#767577', true: '#4cd964' }} />
       </View>
@@ -273,7 +251,25 @@ function SettingsScreen() {
   );
 }
 
-// --- 4. Help Screen ---
+// --- 4. Debug Logs Screen ---
+function LogsScreen() {
+  const { isDarkMode } = useContext(SettingsContext);
+  const { logs } = useContext(LogContext);
+  const theme = getTheme(isDarkMode);
+
+  return (
+    <SafeAreaView style={[styles.container, theme.container]}>
+      <Text style={[styles.title, theme.text]}>Debug Logs</Text>
+      <ScrollView style={{ flex: 1, width: '100%' }}>
+        {logs.map((log, index) => (
+          <Text key={index} style={[styles.logText, theme.subtitle]}>{log}</Text>
+        ))}
+      </ScrollView>
+    </SafeAreaView>
+  );
+}
+
+// --- 5. Help Screen ---
 function HelpScreen() {
   const { isDarkMode } = useContext(SettingsContext);
   const theme = getTheme(isDarkMode);
@@ -288,7 +284,7 @@ function HelpScreen() {
   );
 }
 
-// --- 5. Share Screen ---
+// --- 6. Share Screen ---
 function ShareScreen() {
   const { isDarkMode } = useContext(SettingsContext);
   const theme = getTheme(isDarkMode);
@@ -309,93 +305,62 @@ function ShareScreen() {
   );
 }
 
-// --- 6. Debug Logs Screen ---
-function DebugLogScreen() {
-  const { isDarkMode } = useContext(SettingsContext);
-  const theme = getTheme(isDarkMode);
-  const logs = useDebugLogs();
-
-  const renderItem = ({ item }: any) => (
-    <View style={[styles.logRow, { borderBottomColor: isDarkMode ? '#1b4a3b' : '#e0e0e0' }]}>
-      <Text style={[styles.logTime, theme.subtitle]}>{formatTime(item.t)}</Text>
-      <Text style={styles.logTag}>{item.tag}</Text>
-      <Text style={[styles.logMsg, theme.text]}>{item.msg}</Text>
-    </View>
-  );
-
-  return (
-    <SafeAreaView style={[styles.container, theme.container]}>
-      <View style={styles.logHeaderRow}>
-        <Text style={[styles.title, theme.text, { marginBottom: 0 }]}>Debug Logs</Text>
-        <Text style={[styles.logCount, theme.subtitle]}>{logs.length} events</Text>
-      </View>
-      <Text style={[styles.subtitle, theme.subtitle, { marginBottom: 12 }]}>
-        Live events from the light sensor and the rakaat counter.
-      </Text>
-      <View style={styles.logButtonRow}>
-        <TouchableOpacity style={[styles.logButton, theme.rakaatButton]} onPress={() => logStore.clear()}>
-          <Text style={[styles.logButtonText, theme.text]}>Clear</Text>
-        </TouchableOpacity>
-      </View>
-      {logs.length === 0 ? (
-        <Text style={[styles.subtitle, theme.subtitle]}>No events yet. Open a prayer to see logs.</Text>
-      ) : (
-        <FlatList
-          data={[...logs].reverse()}
-          keyExtractor={(item) => String(item.id)}
-          renderItem={renderItem}
-          style={styles.logList}
-        />
-      )}
-    </SafeAreaView>
-  );
-}
-
-// --- Theme Helper ---
+// --- Helpers & Styles ---
 function getTheme(isDark: boolean) {
   return {
     container: { backgroundColor: isDark ? '#0a1f1a' : '#f5f5f5' },
-    text: { color: isDark ? '#ffffff' : '#000000' },
+    text: { color: isDark ? '#ffffff' : '#1a1a1a' },
     subtitle: { color: isDark ? '#a0b0a8' : '#666666' },
     rakaatButton: { backgroundColor: isDark ? '#112a22' : '#ffffff', borderColor: isDark ? '#1b4a3b' : '#e0e0e0' },
+    settingRowBorder: { borderBottomColor: isDark ? '#1b4a3b' : '#e0e0e0' },
   };
 }
 
-// --- Styles ---
 const styles = StyleSheet.create({
   container: { flex: 1, padding: 20 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  title: { fontSize: 32, fontWeight: 'bold', marginBottom: 20 },
-  subtitle: { fontSize: 16, marginBottom: 30 },
-  buttonRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 20 },
-  rakaatButton: { flex: 1, paddingVertical: 15, marginHorizontal: 5, borderRadius: 15, alignItems: 'center', borderWidth: 1 },
+  
+  heroContainer: { alignItems: 'center', marginTop: 40, marginBottom: 40 },
+  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 8, letterSpacing: 0.5 },
+  subtitle: { fontSize: 14, marginBottom: 20, letterSpacing: 1 },
+  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 20, textAlign: 'center' },
+  
+  buttonRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 15 },
+  rakaatButton: { 
+    flex: 1, 
+    paddingVertical: 18, 
+    marginHorizontal: 6, 
+    borderRadius: 16, 
+    alignItems: 'center', 
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 5,
+    elevation: 3,
+  },
   rakaatButtonText: { fontSize: 18, fontWeight: 'bold' },
   
-  prayerTitle: { fontSize: 20, letterSpacing: 2, marginBottom: 10 },
-  prayerCount: { fontSize: 100, fontWeight: 'bold', lineHeight: 110 },
-  sajdahText: { fontSize: 18, marginBottom: 20 },
-  statusText: { fontSize: 26, fontWeight: 'bold' },
-  stopButton: { backgroundColor: '#e74c3c', paddingHorizontal: 40, paddingVertical: 15, borderRadius: 30, marginTop: 40 },
-  stopButtonText: { fontSize: 20, color: '#ffffff', fontWeight: 'bold' },
+  prayerTitle: { fontSize: 18, letterSpacing: 2, marginBottom: 30 },
+  counterContainer: { alignItems: 'center', marginBottom: 20 },
+  prayerCount: { fontSize: 90, fontWeight: 'bold', lineHeight: 100 },
+  sajdahCount: { fontSize: 60, fontWeight: 'bold', lineHeight: 70 },
+  counterLabel: { fontSize: 16, textTransform: 'uppercase', letterSpacing: 2 },
+  
+  statusText: { fontSize: 24, fontWeight: 'bold', marginVertical: 20 },
+  stopButton: { backgroundColor: '#e74c3c', paddingHorizontal: 40, paddingVertical: 15, borderRadius: 30, marginTop: 20 },
+  stopButtonText: { fontSize: 18, color: '#ffffff', fontWeight: 'bold' },
 
-  calibrationTitle: { fontSize: 22, marginBottom: 20, textAlign: 'center', fontWeight: 'bold' },
+  calibrationTitle: { fontSize: 24, marginBottom: 20, textAlign: 'center', fontWeight: 'bold' },
   calibrationHint: { fontSize: 16, textAlign: 'center', marginBottom: 20 },
-  lightText: { fontSize: 28, color: '#4cd964', fontWeight: 'bold' },
+  lightText: { fontSize: 32, color: '#4cd964', fontWeight: 'bold' },
 
-  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 15, borderBottomWidth: 1, borderBottomColor: '#333' },
+  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 18, borderBottomWidth: 1 },
   settingLabel: { fontSize: 18 },
-  helpText: { fontSize: 16, marginBottom: 10, lineHeight: 24 },
-  mainButton: { backgroundColor: '#1b4a3b', paddingHorizontal: 40, paddingVertical: 15, borderRadius: 30, borderWidth: 2, borderColor: '#4cd964' },
+  
+  logText: { fontSize: 14, marginBottom: 8, fontFamily: 'monospace' },
+  
+  helpText: { fontSize: 16, marginBottom: 12, lineHeight: 24 },
+  mainButton: { backgroundColor: '#1b4a3b', paddingHorizontal: 40, paddingVertical: 15, borderRadius: 30, borderWidth: 1, borderColor: '#4cd964' },
   mainButtonText: { fontSize: 18, color: '#ffffff', fontWeight: 'bold' },
-
-  logHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
-  logCount: { fontSize: 14, fontWeight: 'bold' },
-  logButtonRow: { flexDirection: 'row', marginBottom: 12 },
-  logButton: { paddingHorizontal: 24, paddingVertical: 10, borderRadius: 12, borderWidth: 1 },
-  logButtonText: { fontSize: 16, fontWeight: 'bold' },
-  logList: { flex: 1 },
-  logRow: { flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, alignItems: 'flex-start' },
-  logTime: { fontSize: 12, width: 68 },
-  logTag: { fontSize: 12, width: 66, color: '#4cd964', fontWeight: 'bold' },
-  logMsg: { fontSize: 14, flex: 1 },
-});
+}); 
