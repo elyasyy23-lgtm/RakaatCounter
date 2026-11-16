@@ -39,3 +39,28 @@ Docs: https://docs.expo.dev/eas/index.md
 - If `ios/` and `android/` directories do not exist, they are generated (Continuous Native Generation). Never create or edit them by hand — configure native behavior in `app.json` and config plugins.
 - Expo Go only includes its bundled native modules. After adding a library with native code, the app needs a development build: `npx expo run:ios|android` locally, or `eas build --profile development`.
 - Prefer recommended Expo modules over third-party libraries, and check your available skills before adding dependencies. Docs: https://docs.expo.dev/versions/latest/index.md
+
+## Project notes — RakaatCounter (Expo SDK 58, single-file UI)
+
+- Entry: `App.tsx` (all screens in one file) + `i18n.ts` (English string IS the key,
+  `translate(lang, key, params)`, Persian digits auto-converted). Navigation = drawer
+  navigator (Home / Settings / Debug Logs / Help / Share App) + hidden `Prayer` screen.
+- Screens: HomeScreen (5 daily prayers from the madhhab table, Taraweeh, Recalibrate card),
+  PrayerScreen (light-sensor counting, Qibla compass under the Sujud card, Stop Prayer),
+  SettingsScreen (Night Mode, Vibration, Language EN/FA, Madhhab 4 chips), LogsScreen, Help, Share.
+- Madhhab data: `PRAYER_PLANS` + `PRAYERS` + `dailyTotals()` at the top of App.tsx. Fard is
+  17 for every school; the table only carries emphasised Sunnah + Witr per prayer.
+- Persistence: AsyncStorage `@rakaat_language`, `@rakaat_madhhab`.
+- GOTCHA (cost a debugging cycle): `drawerLabel` must be a plain STRING. Passing a function
+  that returns a string makes @react-navigation/drawer render it as a raw child of a View →
+  "Text strings must be rendered within a <Text> component". Same for any label prop that
+  DrawerItem renders directly.
+- GOTCHA: custom Inter font means Android ignores `fontWeight`; use the `F` family map.
+  Arabic text (الحمدلله) must carry NO fontFamily (Inter has no Arabic glyphs).
+- Verify commands (no lint config in this repo):
+  `npx tsc --noEmit` then `npx expo export --platform android --no-bytecode`
+  (plain `expo export` fails on Termux at the Hermes bytecode step — host limit, not a bug).
+- Dev server on this phone: `bash ~/restart-metro.sh` (localhost mode, NOT --tunnel) →
+  `exp://127.0.0.1:8081`. Tunnel mode makes the bundle download through ngrok and stalls.
+- Ship rule (owner): NO build/push until he confirms the Expo Go test. Then bump version in
+  app.json + package.json (+ APP_VERSION in App.tsx), commit, push main, tag, watch CI.
