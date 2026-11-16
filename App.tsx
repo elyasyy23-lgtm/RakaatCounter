@@ -1,13 +1,59 @@
-import React, { useState, useEffect, useRef, createContext, useContext } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, SafeAreaView, ActivityIndicator, StatusBar, Switch, Share, Alert, ScrollView, Vibration } from 'react-native';
+import React, { useState, useEffect, useRef, useCallback, createContext, useContext } from 'react';
+import {
+  StyleSheet,
+  Text,
+  View,
+  TouchableOpacity,
+  ActivityIndicator,
+  StatusBar,
+  Switch,
+  Share,
+  Alert,
+  ScrollView,
+  Vibration,
+  Platform,
+} from 'react-native';
 import { LightSensor } from 'expo-sensors';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import { useFonts } from 'expo-font';
+import {
+  SafeAreaProvider,
+  SafeAreaView,
+  initialWindowMetrics,
+  useSafeAreaInsets,
+} from 'react-native-safe-area-context';
 import { NavigationContainer } from '@react-navigation/native';
-import { createDrawerNavigator } from '@react-navigation/drawer';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons'; // Assuming expo vector icons are available
+import {
+  createDrawerNavigator,
+  DrawerContentScrollView,
+  DrawerItemList,
+} from '@react-navigation/drawer';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
+import {
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+} from '@expo-google-fonts/inter';
+
+const APP_VERSION = '1.2.0';
+
+// Inter is loaded through expo-font. Android ignores `fontWeight` when a
+// custom fontFamily is set, so every weight gets its own family name here.
+const F = {
+  regular: 'Inter_400Regular',
+  medium: 'Inter_500Medium',
+  semi: 'Inter_600SemiBold',
+  bold: 'Inter_700Bold',
+  extra: 'Inter_800ExtraBold',
+};
 
 // --- Global Log Context ---
-const LogContext = createContext<{ logs: string[]; addLog: (msg: string) => void }>({ logs: [], addLog: () => {} });
+const LogContext = createContext<{ logs: string[]; addLog: (msg: string) => void }>({
+  logs: [],
+  addLog: () => {},
+});
 
 // --- Settings Context ---
 const SettingsContext = createContext({
@@ -22,29 +68,105 @@ export default function App() {
   const [isDarkMode, setIsDarkMode] = useState(true);
   const [vibrationEnabled, setVibrationEnabled] = useState(true);
   const [logs, setLogs] = useState<string[]>([]);
-  
-  const addLog = (msg: string) => {
+
+  // Load the UI font AND the vector-icon fonts through expo-font explicitly.
+  // @expo/vector-icons normally loads its own fonts lazily, which can silently
+  // fail in a release build; loading them here is the supported path and makes
+  // the icons render in the APK too.
+  const [fontsLoaded, fontError] = useFonts({
+    ...Ionicons.font,
+    ...MaterialCommunityIcons.font,
+    Inter_400Regular,
+    Inter_500Medium,
+    Inter_600SemiBold,
+    Inter_700Bold,
+    Inter_800ExtraBold,
+  });
+
+  // Safety net: never leave the user stuck on the boot screen if a font load
+  // hangs. After 4s we render anyway and the system font takes over.
+  const [fontTimedOut, setFontTimedOut] = useState(false);
+  useEffect(() => {
+    const t = setTimeout(() => setFontTimedOut(true), 4000);
+    return () => clearTimeout(t);
+  }, []);
+
+  const fontsReady = fontsLoaded || !!fontError || fontTimedOut;
+  const theme = getTheme(isDarkMode);
+
+  // Stable identity on purpose: consumers use addLog inside useEffect deps, and a
+  // fresh function every render would re-run those effects (and re-log) on each
+  // log update — an endless loop.
+  const addLog = useCallback((msg: string) => {
     const time = new Date().toLocaleTimeString();
-    setLogs(prev => [`[${time}] ${msg}`, ...prev].slice(0, 50));
-  };
+    setLogs((prev) => [`[${time}] ${msg}`, ...prev].slice(0, 50));
+  }, []);
+
+  if (!fontsReady) {
+    return (
+      <View style={[styles.bootScreen, { backgroundColor: theme.bg }]}>
+        <StatusBar barStyle="light-content" />
+        <View style={[styles.heroBadge, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
+          <MaterialCommunityIcons name="mosque" size={64} color={theme.accent} />
+        </View>
+        <Text style={[styles.bootText, { color: theme.textMuted }]}>Rakaat Tracker</Text>
+        <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
+      </View>
+    );
+  }
 
   return (
-    <SettingsContext.Provider value={{
-      isDarkMode, vibrationEnabled,
-      toggleDarkMode: () => setIsDarkMode(!isDarkMode),
-      toggleVibration: () => setVibrationEnabled(!vibrationEnabled)
-    }}>
+    <SafeAreaProvider initialMetrics={initialWindowMetrics}>
+      <SettingsContext.Provider
+        value={{
+        isDarkMode,
+        vibrationEnabled,
+        toggleDarkMode: () => setIsDarkMode(!isDarkMode),
+        toggleVibration: () => setVibrationEnabled(!vibrationEnabled),
+      }}
+    >
       <LogContext.Provider value={{ logs, addLog }}>
+        <StatusBar barStyle={isDarkMode ? 'light-content' : 'dark-content'} />
         <NavigationContainer>
-          <Drawer.Navigator 
+          <Drawer.Navigator
             initialRouteName="Home"
+            drawerContent={(props) => <CustomDrawerContent {...props} />}
             screenOptions={({ route }) => ({
-              headerStyle: { backgroundColor: isDarkMode ? '#0a1f1a' : '#ffffff', elevation: 0, shadowOpacity: 0 },
-              headerTintColor: isDarkMode ? '#ffffff' : '#000000',
-              drawerStyle: { backgroundColor: isDarkMode ? '#0f2e24' : '#f0f0f0', width: 280 },
-              drawerActiveTintColor: '#4cd964',
-              drawerInactiveTintColor: isDarkMode ? '#a0b0a8' : '#555555',
-              drawerLabelStyle: { fontSize: 16, fontWeight: '600', marginLeft: -10 },
+              headerStyle: {
+                backgroundColor: theme.bg,
+                elevation: 0,
+                shadowOpacity: 0,
+                borderBottomWidth: 0,
+              },
+              headerShadowVisible: false,
+              headerTintColor: theme.text,
+              headerTitleStyle: {
+                fontFamily: F.bold,
+                fontSize: 18,
+                letterSpacing: -0.2,
+              },
+              headerTitleAlign: 'left',
+              drawerStyle: {
+                backgroundColor: theme.drawerBg,
+                width: 296,
+                borderTopRightRadius: 26,
+                borderBottomRightRadius: 26,
+              },
+              drawerActiveTintColor: theme.accent,
+              drawerInactiveTintColor: theme.textMuted,
+              drawerActiveBackgroundColor: theme.accentSoft,
+              drawerItemStyle: {
+                borderRadius: 14,
+                marginHorizontal: 12,
+                marginVertical: 3,
+                paddingVertical: 3,
+              },
+              drawerLabelStyle: {
+                fontFamily: F.semi,
+                fontSize: 15,
+                letterSpacing: 0.1,
+                marginLeft: -8,
+              },
               drawerIcon: ({ color, size, focused }) => {
                 let iconName;
                 if (route.name === 'Home') iconName = focused ? 'home' : 'home-outline';
@@ -52,24 +174,72 @@ export default function App() {
                 else if (route.name === 'Help') iconName = focused ? 'help-circle' : 'help-circle-outline';
                 else if (route.name === 'Share App') iconName = focused ? 'share-social' : 'share-social-outline';
                 else if (route.name === 'Debug Logs') iconName = focused ? 'terminal' : 'terminal-outline';
-                return <Ionicons name={iconName as any} size={size} color={color} />;
+                return <Ionicons name={iconName as any} size={size ?? 22} color={color} />;
               },
             })}
           >
-            <Drawer.Screen name="Home" component={HomeScreen} />
+            <Drawer.Screen name="Home" component={HomeScreen} options={{ headerShown: false }} />
             <Drawer.Screen name="Settings" component={SettingsScreen} />
             <Drawer.Screen name="Debug Logs" component={LogsScreen} />
             <Drawer.Screen name="Help" component={HelpScreen} />
             <Drawer.Screen name="Share App" component={ShareScreen} />
-            <Drawer.Screen name="Prayer" component={PrayerScreen} options={{ drawerItemStyle: { display: 'none' }, headerShown: false }} />
+            <Drawer.Screen
+              name="Prayer"
+              component={PrayerScreen}
+              options={{ drawerItemStyle: { display: 'none' }, headerShown: false }}
+            />
           </Drawer.Navigator>
         </NavigationContainer>
       </LogContext.Provider>
-    </SettingsContext.Provider>
+      </SettingsContext.Provider>
+    </SafeAreaProvider>
   );
 }
 
 const Drawer = createDrawerNavigator();
+
+// --- Custom Drawer (branded header + spaced, rounded items) ---
+function CustomDrawerContent(props: any) {
+  const { isDarkMode } = useContext(SettingsContext);
+  const theme = getTheme(isDarkMode);
+  const insets = useSafeAreaInsets();
+
+  return (
+    <View style={[styles.drawerRoot, { backgroundColor: theme.drawerBg }]}>
+      <View style={[styles.drawerHeader, { paddingTop: 26 + insets.top }]}>
+        <View
+          style={[
+            styles.drawerBadge,
+            { backgroundColor: theme.accentSoft, borderColor: theme.border },
+          ]}
+        >
+          <MaterialCommunityIcons name="mosque" size={26} color={theme.accent} />
+        </View>
+        <Text style={[styles.drawerTitle, { color: theme.text }]}>Rakaat Tracker</Text>
+        <Text style={[styles.drawerSub, { color: theme.textMuted }]}>
+          Enhancing Your Salah
+        </Text>
+      </View>
+
+      <View style={[styles.drawerDivider, { backgroundColor: theme.borderSoft }]} />
+
+      <DrawerContentScrollView
+        {...props}
+        contentContainerStyle={styles.drawerScroll}
+        showsVerticalScrollIndicator={false}
+      >
+        <DrawerItemList {...props} />
+      </DrawerContentScrollView>
+
+      <View style={[styles.drawerFooter, { borderTopColor: theme.borderSoft }]}>
+        <Ionicons name="moon-outline" size={14} color={theme.textMuted} />
+        <Text style={[styles.drawerFooterText, { color: theme.textMuted }]}>
+          v{APP_VERSION}
+        </Text>
+      </View>
+    </View>
+  );
+}
 
 // --- 1. Home Screen ---
 function HomeScreen({ navigation }: any) {
@@ -77,33 +247,123 @@ function HomeScreen({ navigation }: any) {
   const theme = getTheme(isDarkMode);
 
   const startPrayer = (rakaatCount: number) => {
-    navigation.navigate('Prayer', { targetRakaat: rakaatCount });
+    // A fresh id per tap: the Prayer screen resets its counters whenever this
+    // changes, so a new prayer always starts from absolute zero — the drawer
+    // navigator keeps that screen mounted between visits, so relying on a
+    // remount would leak the previous prayer's numbers.
+    navigation.navigate('Prayer', { targetRakaat: rakaatCount, sessionId: Date.now() });
   };
 
+  const cards = [
+    { value: 2, label: 'Two' },
+    { value: 3, label: 'Three' },
+    { value: 4, label: 'Four' },
+  ];
+
   return (
-    <SafeAreaView style={[styles.container, theme.container]}>
-      <View style={styles.heroContainer}>
-        <MaterialCommunityIcons name="mosque" size={100} color={isDarkMode ? '#4cd964' : '#1b4a3b'} />
-        <Text style={[styles.title, theme.text]}>Rakaat Tracker</Text>
-        <Text style={[styles.subtitle, theme.subtitle]}>Enhancing Your Salah Experience</Text>
-      </View>
-      
-      <Text style={[styles.sectionTitle, theme.text]}>Choose rakaat to start</Text>
-      
-      <View style={styles.buttonRow}>
-        <TouchableOpacity style={[styles.rakaatButton, theme.rakaatButton]} onPress={() => startPrayer(2)}>
-          <Text style={[styles.rakaatButtonText, theme.text]}>Two</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.rakaatButton, theme.rakaatButton]} onPress={() => startPrayer(3)}>
-          <Text style={[styles.rakaatButtonText, theme.text]}>Three</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={[styles.rakaatButton, theme.rakaatButton]} onPress={() => startPrayer(4)}>
-          <Text style={[styles.rakaatButtonText, theme.text]}>Four</Text>
+    <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <View style={styles.topBar}>
+        <TouchableOpacity
+          style={[styles.menuButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+          onPress={() => navigation.openDrawer()}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityLabel="Open menu"
+        >
+          <Ionicons name="menu" size={22} color={theme.text} />
         </TouchableOpacity>
       </View>
-      <TouchableOpacity style={[styles.rakaatButton, theme.rakaatButton, { width: '60%', marginTop: 15 }]} onPress={() => startPrayer(20)}>
-        <Text style={[styles.rakaatButtonText, theme.text]}>Taraweeh</Text>
-      </TouchableOpacity>
+
+      <ScrollView
+        contentContainerStyle={styles.homeScroll}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* Hero */}
+        <View style={styles.hero}>
+          <View
+            style={[
+              styles.heroBadge,
+              {
+                backgroundColor: theme.accentSoft,
+                borderColor: theme.border,
+                shadowColor: theme.accent,
+                shadowOpacity: theme.isDark ? 0.45 : 0.22,
+              },
+            ]}
+          >
+            <MaterialCommunityIcons name="mosque" size={68} color={theme.accent} />
+          </View>
+          <Text style={[styles.heroTitle, { color: theme.text }]}>Rakaat Tracker</Text>
+          <Text style={[styles.heroSub, { color: theme.textMuted }]}>
+            Enhancing Your Salah Experience
+          </Text>
+        </View>
+
+        <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>CHOOSE RAKAAT</Text>
+
+        <View style={styles.cardRow}>
+          {cards.map((c) => (
+            <TouchableOpacity
+              key={c.value}
+              activeOpacity={0.85}
+              onPress={() => startPrayer(c.value)}
+              accessibilityRole="button"
+              accessibilityLabel={`Start ${c.value} rakaat prayer`}
+              style={[
+                styles.rakaatCard,
+                {
+                  backgroundColor: theme.surface,
+                  borderColor: theme.border,
+                  shadowColor: theme.shadow,
+                  shadowOpacity: theme.shadowOpacity,
+                },
+              ]}
+            >
+              <Text style={[styles.rakaatNum, { color: theme.accent }]}>{c.value}</Text>
+              <Text style={[styles.rakaatCardLabel, { color: theme.textMuted }]}>
+                {c.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => startPrayer(20)}
+          accessibilityRole="button"
+          accessibilityLabel="Start 20 rakaat Taraweeh prayer"
+          style={[
+            styles.taraweehCard,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              shadowColor: theme.shadow,
+              shadowOpacity: theme.shadowOpacity,
+            },
+          ]}
+        >
+          <View
+            style={[
+              styles.taraweehBadge,
+              { backgroundColor: theme.goldSoft, borderColor: theme.border },
+            ]}
+          >
+            <MaterialCommunityIcons name="moon-waning-crescent" size={24} color={theme.gold} />
+          </View>
+          <View style={styles.taraweehText}>
+            <Text style={[styles.taraweehTitle, { color: theme.text }]}>Taraweeh</Text>
+            <Text style={[styles.taraweehSub, { color: theme.textMuted }]}>20 Rakaat</Text>
+          </View>
+          <Ionicons name="chevron-forward" size={20} color={theme.textMuted} />
+        </TouchableOpacity>
+
+        <View style={[styles.tipCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}>
+          <MaterialCommunityIcons name="lightbulb-on-outline" size={18} color={theme.accent} />
+          <Text style={[styles.tipText, { color: theme.textMuted }]}>
+            Keep the phone on your prayer mat with the top edge clear.
+          </Text>
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
@@ -113,14 +373,16 @@ function PrayerScreen({ route, navigation }: any) {
   const { isDarkMode, vibrationEnabled } = useContext(SettingsContext);
   const { addLog } = useContext(LogContext);
   const theme = getTheme(isDarkMode);
-  const { targetRakaat } = route.params;
-  
+  const { targetRakaat, sessionId } = route.params;
+
   const [appState, setAppState] = useState('CALIBRATING_AMBIENT');
   const [lightLevel, setLightLevel] = useState(0);
   const [rakaat, setRakaat] = useState(0);
   const [sajdahCount, setSajdahCount] = useState(0);
+  // Cumulative for the whole prayer — deliberately NOT reset per rakaat.
+  const [totalSujud, setTotalSujud] = useState(0);
   const [isSujud, setIsSujud] = useState(false);
-  
+
   const [ambientLight, setAmbientLight] = useState(0);
   const [sujudLight, setSujudLight] = useState(0);
   const [darkThreshold, setDarkThreshold] = useState(50);
@@ -130,6 +392,26 @@ function PrayerScreen({ route, navigation }: any) {
   // changes do not restart the 3s countdown (which would stall calibration).
   const lightRef = useRef(0);
 
+  // Fires the completion alert exactly once, even if the effect re-runs.
+  const completedRef = useRef(false);
+
+  // The single place that puts every counter back to absolute zero:
+  // rakaat, the displayed Sujud total, and the internal 0-1 sajdah counter.
+  const resetCounters = useCallback(() => {
+    setRakaat(0);
+    setSajdahCount(0);
+    setTotalSujud(0);
+    setIsSujud(false);
+    completedRef.current = false;
+  }, []);
+
+  // A new prayer session (fresh id handed over by Home) starts from absolute
+  // zero. This screen stays mounted between visits, so a remount cannot be
+  // relied on to clear the previous prayer's numbers.
+  useEffect(() => {
+    resetCounters();
+  }, [sessionId, resetCounters]);
+
   useEffect(() => {
     let subscription: any;
     LightSensor.isAvailableAsync().then((available) => {
@@ -138,7 +420,7 @@ function PrayerScreen({ route, navigation }: any) {
           const currentLight = Math.round(illuminance);
           lightRef.current = currentLight;
           setLightLevel(currentLight);
-          
+
           if (appState === 'PRAYING') {
             if (currentLight < darkThreshold && !isSujud) {
               setIsSujud(true);
@@ -147,23 +429,14 @@ function PrayerScreen({ route, navigation }: any) {
             } else if (currentLight > lightThreshold && isSujud) {
               setIsSujud(false);
               addLog(`Sujud END (Lux: ${currentLight})`);
+              setTotalSujud((prev) => prev + 1);
               if (vibrationEnabled) Vibration.vibrate(50);
-              setSajdahCount((prev) => {
-                const newCount = prev + 1;
-                if (newCount === 2) {
-                  setRakaat((r) => {
-                    const nextRakaat = r + 1;
-                    addLog(`Rakaat ${nextRakaat} completed!`);
-                    if (nextRakaat === targetRakaat) {
-                      Alert.alert('Prayer Complete', 'You have finished your prayer.');
-                      navigation.goBack();
-                    }
-                    return nextRakaat;
-                  });
-                  return 0;
-                }
-                return newCount;
-              });
+              // PURE updater only. Side effects (logging, Alert, navigation) must
+              // never run inside it: React can execute an updater during the render
+              // phase, and addLog() updates App (a different component) → the crash
+              // "Cannot update a component (App) while rendering PrayerScreen".
+              // The 2-sajdah → 1-rakaat transition is handled in the effect below.
+              setSajdahCount((prev) => prev + 1);
             }
           }
         });
@@ -171,6 +444,31 @@ function PrayerScreen({ route, navigation }: any) {
     });
     return () => { if (subscription) subscription.remove(); };
   }, [appState, isSujud, darkThreshold, lightThreshold]);
+
+  // 2 sajdahs = 1 rakaat. Deliberately an effect and NOT inside the updater above:
+  // state updaters must stay pure, and addLog() writes to a different component.
+  useEffect(() => {
+    if (sajdahCount >= 2) {
+      setSajdahCount(0);
+      setRakaat((r) => r + 1);
+    }
+  }, [sajdahCount]);
+
+  // Log each completed rakaat, and finish the prayer on the last one.
+  useEffect(() => {
+    if (rakaat === 0) return;
+    addLog(`Rakaat ${rakaat} completed!`);
+    if (rakaat >= targetRakaat && !completedRef.current) {
+      completedRef.current = true;
+      Alert.alert('Prayer Complete', 'You have finished your prayer.');
+      // Prayer is over: zero every counter before leaving the screen.
+      resetCounters();
+      navigation.goBack();
+    }
+    // addLog is memoised in App (useCallback), so its identity is stable — but we
+    // leave it out of the deps so this effect keys strictly off rakaat/target.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rakaat, targetRakaat]);
 
   useEffect(() => {
     let timer: any;
@@ -189,42 +487,113 @@ function PrayerScreen({ route, navigation }: any) {
 
   useEffect(() => { activateKeepAwakeAsync(); return () => { deactivateKeepAwake(); }; }, []);
 
-  if (appState === 'CALIBRATING_AMBIENT' || appState === 'CALIBRATING_SUJUD') {
+  const calibrating = appState === 'CALIBRATING_AMBIENT' || appState === 'CALIBRATING_SUJUD';
+
+  if (calibrating) {
+    const firstStep = appState === 'CALIBRATING_AMBIENT';
     return (
-      <View style={[styles.center, theme.container]}>
-        <Text style={[styles.calibrationTitle, theme.text]}>
-          {appState === 'CALIBRATING_AMBIENT' ? 'Calibrating...' : 'Simulating Sujud...'}
+      <SafeAreaView edges={['top', 'bottom']} style={[styles.calibScreen, { backgroundColor: theme.bg }]}>
+        <View
+          style={[
+            styles.calibBadge,
+            {
+              backgroundColor: firstStep ? theme.accentSoft : theme.goldSoft,
+              borderColor: theme.border,
+              shadowColor: firstStep ? theme.accent : theme.gold,
+              shadowOpacity: theme.isDark ? 0.4 : 0.2,
+            },
+          ]}
+        >
+          <MaterialCommunityIcons
+            name={firstStep ? 'white-balance-sunny' : 'weather-night'}
+            size={44}
+            color={firstStep ? theme.accent : theme.gold}
+          />
+        </View>
+
+        <Text style={[styles.calibStep, { color: theme.textMuted }]}>
+          {firstStep ? 'STEP 1 OF 2' : 'STEP 2 OF 2'}
         </Text>
-        <ActivityIndicator size="large" color="#4cd964" style={{ marginVertical: 30 }} />
-        <Text style={[styles.calibrationHint, theme.subtitle]}>
-          {appState === 'CALIBRATING_AMBIENT' ? 'Do not cover the phone.' : 'Cover the top of the phone.'}
+        <Text style={[styles.calibTitle, { color: theme.text }]}>
+          {firstStep ? 'Calibrating…' : 'Simulating Sujud…'}
         </Text>
-        <Text style={styles.lightText}>{lightLevel} lux</Text>
-      </View>
+        <Text style={[styles.calibHint, { color: theme.textMuted }]}>
+          {firstStep
+            ? 'Do not cover the top of the phone.'
+            : 'Cover the top of the phone with your hand.'}
+        </Text>
+
+        <ActivityIndicator size="large" color={theme.accent} style={{ marginVertical: 26 }} />
+
+        <View style={[styles.luxPill, { backgroundColor: theme.surface, borderColor: theme.border }]}>
+          <MaterialCommunityIcons name="timer-sand" size={15} color={theme.textMuted} />
+          <Text style={[styles.luxPillText, { color: theme.accent }]}>{lightLevel} lux</Text>
+        </View>
+      </SafeAreaView>
     );
   }
 
-  return (
-    <SafeAreaView style={[styles.center, theme.container]}>
-      <Text style={[styles.prayerTitle, theme.subtitle]}>Target: {targetRakaat} Rakaat</Text>
-      
-      <View style={styles.counterContainer}>
-        <Text style={[styles.prayerCount, theme.text]}>{rakaat}</Text>
-        <Text style={[styles.counterLabel, theme.subtitle]}>Rakaat</Text>
-      </View>
-      
-      <View style={styles.counterContainer}>
-        <Text style={[styles.sajdahCount, theme.text]}>{sajdahCount}</Text>
-        <Text style={[styles.counterLabel, theme.subtitle]}>Sujud</Text>
-      </View>
+  const progress = targetRakaat > 0 ? Math.min(rakaat / targetRakaat, 1) : 0;
 
-      <Text style={[styles.statusText, { color: isSujud ? '#f1c40f' : '#4cd964' }]}>
-        {isSujud ? '🧎 In Sujud' : '🧍 Standing'}
-      </Text>
-      
-      <TouchableOpacity style={styles.stopButton} onPress={() => { addLog('Prayer stopped.'); navigation.goBack(); }}>
-        <Text style={styles.stopButtonText}>Stop Prayer</Text>
-      </TouchableOpacity>
+  return (
+    <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <View style={styles.prayerBody}>
+        <View style={[styles.targetPill, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
+          <MaterialCommunityIcons name="target" size={15} color={theme.accent} />
+          <Text style={[styles.targetPillText, { color: theme.accent }]}>
+            TARGET {targetRakaat} RAKAAT
+          </Text>
+        </View>
+
+        <View
+          style={[
+            styles.counterCard,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              shadowColor: theme.shadow,
+              shadowOpacity: theme.shadowOpacity,
+            },
+          ]}
+        >
+          <Text style={[styles.bigCount, { color: theme.text }]}>{rakaat}</Text>
+          <Text style={[styles.counterLabel, { color: theme.textMuted }]}>RAKAAT</Text>
+          <View style={[styles.progressTrack, { backgroundColor: theme.borderSoft }]}>
+            <View
+              style={[
+                styles.progressFill,
+                { backgroundColor: theme.accent, width: `${Math.round(progress * 100)}%` },
+              ]}
+            />
+          </View>
+        </View>
+
+        <View style={styles.prayerRow}>
+          <View
+            style={[
+              styles.smallCard,
+              { backgroundColor: theme.surface, borderColor: theme.border },
+            ]}
+          >
+            <Text style={[styles.smallCount, { color: theme.text }]}>{totalSujud}</Text>
+            <Text style={[styles.counterLabel, { color: theme.textMuted }]}>SUJUD</Text>
+          </View>
+        </View>
+
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={() => { addLog('Prayer stopped.'); resetCounters(); navigation.goBack(); }}
+          accessibilityRole="button"
+          accessibilityLabel="Stop prayer"
+          style={[
+            styles.stopButton,
+            { backgroundColor: theme.dangerSoft, borderColor: theme.danger },
+          ]}
+        >
+          <Ionicons name="stop-circle" size={19} color={theme.danger} />
+          <Text style={[styles.stopButtonText, { color: theme.danger }]}>Stop Prayer</Text>
+        </TouchableOpacity>
+      </View>
     </SafeAreaView>
   );
 }
@@ -235,19 +604,75 @@ function SettingsScreen() {
   const theme = getTheme(isDarkMode);
 
   return (
-    <SafeAreaView style={[styles.container, theme.container]}>
-      <Text style={[styles.title, theme.text]}>Settings</Text>
-      
-      <View style={[styles.settingRow, theme.settingRowBorder]}>
-        <Text style={[styles.settingLabel, theme.text]}>Night Mode</Text>
-        <Switch value={isDarkMode} onValueChange={toggleDarkMode} trackColor={{ false: '#767577', true: '#4cd964' }} />
-      </View>
+    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <ScrollView contentContainerStyle={styles.pageScroll} showsVerticalScrollIndicator={false}>
+        <Text style={[styles.pageTitle, { color: theme.text }]}>Settings</Text>
+        <Text style={[styles.pageSub, { color: theme.textMuted }]}>
+          Personalise how the app looks and feels.
+        </Text>
 
-      <View style={[styles.settingRow, theme.settingRowBorder]}>
-        <Text style={[styles.settingLabel, theme.text]}>Vibration</Text>
-        <Switch value={vibrationEnabled} onValueChange={toggleVibration} trackColor={{ false: '#767577', true: '#4cd964' }} />
+        <View
+          style={[
+            styles.group,
+            {
+              backgroundColor: theme.surface,
+              borderColor: theme.border,
+              shadowColor: theme.shadow,
+              shadowOpacity: theme.shadowOpacity,
+            },
+          ]}
+        >
+          <SettingRow
+            icon={isDarkMode ? 'weather-night' : 'white-balance-sunny'}
+            iconColor={isDarkMode ? theme.accent : theme.gold}
+            iconBg={isDarkMode ? theme.accentSoft : theme.goldSoft}
+            label="Night Mode"
+            hint="Dark theme across the app"
+            theme={theme}
+            control={
+              <Switch
+                value={isDarkMode}
+                onValueChange={toggleDarkMode}
+                trackColor={{ false: theme.switchTrack, true: theme.accent }}
+                thumbColor={theme.isDark ? '#E8F5EE' : '#FFFFFF'}
+              />
+            }
+          />
+          <View style={[styles.groupDivider, { backgroundColor: theme.borderSoft }]} />
+          <SettingRow
+            icon="vibrate"
+            iconColor={theme.accent}
+            iconBg={theme.accentSoft}
+            label="Vibration"
+            hint="Buzz on every detected sujud"
+            theme={theme}
+            control={
+              <Switch
+                value={vibrationEnabled}
+                onValueChange={toggleVibration}
+                trackColor={{ false: theme.switchTrack, true: theme.accent }}
+                thumbColor={theme.isDark ? '#E8F5EE' : '#FFFFFF'}
+              />
+            }
+          />
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+function SettingRow({ icon, iconColor, iconBg, label, hint, theme, control }: any) {
+  return (
+    <View style={styles.settingRow}>
+      <View style={[styles.settingIcon, { backgroundColor: iconBg, borderColor: theme.border }]}>
+        <MaterialCommunityIcons name={icon} size={19} color={iconColor} />
       </View>
-    </SafeAreaView>
+      <View style={styles.settingTextWrap}>
+        <Text style={[styles.settingLabel, { color: theme.text }]}>{label}</Text>
+        <Text style={[styles.settingHint, { color: theme.textMuted }]}>{hint}</Text>
+      </View>
+      {control}
+    </View>
   );
 }
 
@@ -258,14 +683,49 @@ function LogsScreen() {
   const theme = getTheme(isDarkMode);
 
   return (
-    <SafeAreaView style={[styles.container, theme.container]}>
-      <Text style={[styles.title, theme.text]}>Debug Logs</Text>
-      <ScrollView style={{ flex: 1, width: '100%' }}>
-        {logs.map((log, index) => (
-          <Text key={index} style={[styles.logText, theme.subtitle]}>{log}</Text>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <View style={styles.logsHeader}>
+        <View style={styles.pageHeaderRow}>
+          <Text style={[styles.pageTitle, { color: theme.text }]}>Debug Logs</Text>
+          <View style={[styles.countPill, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
+            <Text style={[styles.countPillText, { color: theme.accent }]}>{logs.length}</Text>
+          </View>
+        </View>
+        <Text style={[styles.pageSub, { color: theme.textMuted }]}>
+          Live sensor and state events, newest first.
+        </Text>
+      </View>
+
+      <View
+        style={[
+          styles.logCard,
+          {
+            backgroundColor: theme.surface,
+            borderColor: theme.border,
+            shadowColor: theme.shadow,
+            shadowOpacity: theme.shadowOpacity,
+          },
+        ]}
+      >
+        <ScrollView showsVerticalScrollIndicator={false}>
+          {logs.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="terminal-outline" size={26} color={theme.textMuted} />
+              <Text style={[styles.emptyText, { color: theme.textMuted }]}>
+                No events yet. Start a prayer to see logs.
+              </Text>
+            </View>
+          ) : (
+            logs.map((log, index) => (
+              <View key={index} style={styles.logRow}>
+                <View style={[styles.logDot, { backgroundColor: theme.accent }]} />
+                <Text style={[styles.logText, { color: theme.textMuted }]}>{log}</Text>
+              </View>
+            ))
+          )}
+        </ScrollView>
+      </View>
+    </View>
   );
 }
 
@@ -273,14 +733,45 @@ function LogsScreen() {
 function HelpScreen() {
   const { isDarkMode } = useContext(SettingsContext);
   const theme = getTheme(isDarkMode);
+
+  const steps = [
+    'Place your phone on the prayer mat.',
+    'Do not cover the top of the phone during calibration.',
+    'When it says "Simulating Sujud", cover the top with your hand for 3 seconds.',
+    'Start praying. The app counts sajdahs and rakaats automatically.',
+  ];
+
   return (
-    <SafeAreaView style={[styles.container, theme.container]}>
-      <Text style={[styles.title, theme.text]}>How to use</Text>
-      <Text style={[styles.helpText, theme.subtitle]}>1. Place your phone on the prayer mat.</Text>
-      <Text style={[styles.helpText, theme.subtitle]}>2. Do not cover the top of the phone during calibration.</Text>
-      <Text style={[styles.helpText, theme.subtitle]}>3. When it says "Simulating Sujud", cover the top with your hand for 3 seconds.</Text>
-      <Text style={[styles.helpText, theme.subtitle]}>4. Start praying. The app will count sajdahs and rakaats automatically.</Text>
-    </SafeAreaView>
+    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <ScrollView contentContainerStyle={styles.pageScroll} showsVerticalScrollIndicator={false}>
+        <Text style={[styles.pageTitle, { color: theme.text }]}>How to use</Text>
+        <Text style={[styles.pageSub, { color: theme.textMuted }]}>
+          Four quick steps to accurate counting.
+        </Text>
+
+        {steps.map((step, index) => (
+          <View
+            key={index}
+            style={[
+              styles.stepCard,
+              { backgroundColor: theme.surface, borderColor: theme.border },
+            ]}
+          >
+            <View style={[styles.stepNum, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
+              <Text style={[styles.stepNumText, { color: theme.accent }]}>{index + 1}</Text>
+            </View>
+            <Text style={[styles.stepText, { color: theme.text }]}>{step}</Text>
+          </View>
+        ))}
+
+        <View style={[styles.tipCard, { backgroundColor: theme.surfaceAlt, borderColor: theme.borderSoft }]}>
+          <MaterialCommunityIcons name="information-outline" size={18} color={theme.accent} />
+          <Text style={[styles.tipText, { color: theme.textMuted }]}>
+            Two sajdahs complete one rakaat. The counter resets itself for each rakaat.
+          </Text>
+        </View>
+      </ScrollView>
+    </View>
   );
 }
 
@@ -288,79 +779,420 @@ function HelpScreen() {
 function ShareScreen() {
   const { isDarkMode } = useContext(SettingsContext);
   const theme = getTheme(isDarkMode);
-  
+
   const onShare = async () => {
     try {
-      await Share.share({ message: 'Check out Rakaat Tracker! https://github.com/elyasyy23-lgtm/RakaatCounter' });
-    } catch (error: any) { Alert.alert(error.message); }
+      await Share.share({
+        message: 'Check out Rakaat Tracker! https://github.com/elyasyy23-lgtm/RakaatCounter',
+      });
+    } catch (error: any) {
+      Alert.alert(error.message);
+    }
   };
 
   return (
-    <SafeAreaView style={[styles.container, theme.container, { justifyContent: 'center', alignItems: 'center' }]}>
-      <Text style={[styles.title, theme.text]}>Share & Support</Text>
-      <TouchableOpacity style={[styles.mainButton, { marginTop: 20 }]} onPress={onShare}>
-        <Text style={styles.mainButtonText}>Share App</Text>
-      </TouchableOpacity>
-    </SafeAreaView>
+    <View style={[styles.screen, { backgroundColor: theme.bg }]}>
+      <ScrollView contentContainerStyle={styles.shareScroll} showsVerticalScrollIndicator={false}>
+        <View
+          style={[
+            styles.heroBadge,
+            {
+              backgroundColor: theme.accentSoft,
+              borderColor: theme.border,
+              shadowColor: theme.accent,
+              shadowOpacity: theme.isDark ? 0.4 : 0.2,
+            },
+          ]}
+        >
+          <MaterialCommunityIcons name="hand-heart" size={54} color={theme.accent} />
+        </View>
+
+        <Text style={[styles.heroTitle, { color: theme.text }]}>Share & Support</Text>
+        <Text style={[styles.shareSub, { color: theme.textMuted }]}>
+          Help a friend track their salah — every share keeps this app free.
+        </Text>
+
+        <TouchableOpacity
+          activeOpacity={0.85}
+          onPress={onShare}
+          accessibilityRole="button"
+          accessibilityLabel="Share the app"
+          style={[styles.primaryButton, { backgroundColor: theme.accent, shadowColor: theme.accent }]}
+        >
+          <Ionicons name="share-social" size={19} color={theme.isDark ? '#04150E' : '#FFFFFF'} />
+          <Text style={[styles.primaryButtonText, { color: theme.isDark ? '#04150E' : '#FFFFFF' }]}>
+            Share App
+          </Text>
+        </TouchableOpacity>
+      </ScrollView>
+    </View>
   );
 }
 
-// --- Helpers & Styles ---
+// --- Theme ---
 function getTheme(isDark: boolean) {
-  return {
-    container: { backgroundColor: isDark ? '#0a1f1a' : '#f5f5f5' },
-    text: { color: isDark ? '#ffffff' : '#1a1a1a' },
-    subtitle: { color: isDark ? '#a0b0a8' : '#666666' },
-    rakaatButton: { backgroundColor: isDark ? '#112a22' : '#ffffff', borderColor: isDark ? '#1b4a3b' : '#e0e0e0' },
-    settingRowBorder: { borderBottomColor: isDark ? '#1b4a3b' : '#e0e0e0' },
-  };
+  const p = isDark
+    ? {
+        bg: '#07130F',
+        surface: '#0F261D',
+        surfaceAlt: '#123024',
+        border: '#1D4534',
+        borderSoft: '#163527',
+        text: '#F2F8F4',
+        textMuted: '#8AA69A',
+        accent: '#4ADE80',
+        accentSoft: 'rgba(74,222,128,0.13)',
+        gold: '#FBBF24',
+        goldSoft: 'rgba(251,191,36,0.13)',
+        danger: '#F87171',
+        dangerSoft: 'rgba(248,113,113,0.12)',
+        shadow: '#000000',
+        shadowOpacity: 0.45,
+        switchTrack: '#1D4534',
+        drawerBg: '#0A1D16',
+      }
+    : {
+        bg: '#F1F6F3',
+        surface: '#FFFFFF',
+        surfaceAlt: '#F7FAF8',
+        border: '#DCE8E1',
+        borderSoft: '#EAF2ED',
+        text: '#08170F',
+        textMuted: '#5C7268',
+        accent: '#0E9F6E',
+        accentSoft: 'rgba(14,159,110,0.10)',
+        gold: '#B45309',
+        goldSoft: 'rgba(180,83,9,0.10)',
+        danger: '#DC2626',
+        dangerSoft: 'rgba(220,38,38,0.08)',
+        shadow: '#0B1F17',
+        shadowOpacity: 0.08,
+        switchTrack: '#CFE0D8',
+        drawerBg: '#FFFFFF',
+      };
+
+  return { ...p, isDark };
 }
 
+// --- Styles ---
+const CARD_SHADOW = {
+  shadowOffset: { width: 0, height: 6 },
+  shadowRadius: 14,
+  elevation: 5,
+} as const;
+
 const styles = StyleSheet.create({
-  container: { flex: 1, padding: 20 },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  
-  heroContainer: { alignItems: 'center', marginTop: 40, marginBottom: 40 },
-  title: { fontSize: 28, fontWeight: 'bold', marginBottom: 8, letterSpacing: 0.5 },
-  subtitle: { fontSize: 14, marginBottom: 20, letterSpacing: 1 },
-  sectionTitle: { fontSize: 18, fontWeight: '600', marginBottom: 20, textAlign: 'center' },
-  
-  buttonRow: { flexDirection: 'row', justifyContent: 'space-between', width: '100%', marginBottom: 15 },
-  rakaatButton: { 
-    flex: 1, 
-    paddingVertical: 18, 
-    marginHorizontal: 6, 
-    borderRadius: 16, 
-    alignItems: 'center', 
+  bootScreen: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  bootText: { marginTop: 18, fontSize: 15, fontFamily: F.medium, letterSpacing: 1.2 },
+
+  screen: { flex: 1 },
+
+  // Drawer
+  drawerRoot: { flex: 1 },
+  drawerHeader: { paddingHorizontal: 22, paddingBottom: 20 },
+  drawerBadge: {
+    width: 52,
+    height: 52,
+    borderRadius: 17,
     borderWidth: 1,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.1,
-    shadowRadius: 5,
-    elevation: 3,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
   },
-  rakaatButtonText: { fontSize: 18, fontWeight: 'bold' },
-  
-  prayerTitle: { fontSize: 18, letterSpacing: 2, marginBottom: 30 },
-  counterContainer: { alignItems: 'center', marginBottom: 20 },
-  prayerCount: { fontSize: 90, fontWeight: 'bold', lineHeight: 100 },
-  sajdahCount: { fontSize: 60, fontWeight: 'bold', lineHeight: 70 },
-  counterLabel: { fontSize: 16, textTransform: 'uppercase', letterSpacing: 2 },
-  
-  statusText: { fontSize: 24, fontWeight: 'bold', marginVertical: 20 },
-  stopButton: { backgroundColor: '#e74c3c', paddingHorizontal: 40, paddingVertical: 15, borderRadius: 30, marginTop: 20 },
-  stopButtonText: { fontSize: 18, color: '#ffffff', fontWeight: 'bold' },
+  drawerTitle: { fontSize: 19, fontFamily: F.bold, letterSpacing: -0.3 },
+  drawerSub: { fontSize: 12.5, fontFamily: F.medium, marginTop: 3, letterSpacing: 0.3 },
+  drawerDivider: { height: 1, marginHorizontal: 22, marginBottom: 6 },
+  drawerScroll: { paddingTop: 4, paddingBottom: 12 },
+  drawerFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 24,
+    paddingVertical: 16,
+    borderTopWidth: 1,
+  },
+  drawerFooterText: { fontSize: 12, fontFamily: F.medium, letterSpacing: 0.4 },
 
-  calibrationTitle: { fontSize: 24, marginBottom: 20, textAlign: 'center', fontWeight: 'bold' },
-  calibrationHint: { fontSize: 16, textAlign: 'center', marginBottom: 20 },
-  lightText: { fontSize: 32, color: '#4cd964', fontWeight: 'bold' },
+  // Home
+  topBar: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 4 },
+  menuButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  homeScroll: { paddingHorizontal: 18, paddingBottom: 32 },
+  hero: { alignItems: 'center', marginTop: 8, marginBottom: 30 },
+  heroBadge: {
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 10 },
+    shadowRadius: 22,
+    elevation: 10,
+  },
+  heroTitle: {
+    fontSize: 31,
+    fontFamily: F.extra,
+    letterSpacing: -0.8,
+    marginTop: 22,
+    marginBottom: 7,
+  },
+  heroSub: { fontSize: 13.5, fontFamily: F.medium, letterSpacing: 0.5, textAlign: 'center' },
 
-  settingRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 18, borderBottomWidth: 1 },
-  settingLabel: { fontSize: 18 },
-  
-  logText: { fontSize: 14, marginBottom: 8, fontFamily: 'monospace' },
-  
-  helpText: { fontSize: 16, marginBottom: 12, lineHeight: 24 },
-  mainButton: { backgroundColor: '#1b4a3b', paddingHorizontal: 40, paddingVertical: 15, borderRadius: 30, borderWidth: 1, borderColor: '#4cd964' },
-  mainButtonText: { fontSize: 18, color: '#ffffff', fontWeight: 'bold' },
-}); 
+  sectionLabel: {
+    fontSize: 11,
+    fontFamily: F.bold,
+    letterSpacing: 1.6,
+    marginBottom: 12,
+    marginLeft: 2,
+  },
+
+  cardRow: { flexDirection: 'row', marginHorizontal: -5, marginBottom: 12 },
+  rakaatCard: {
+    flex: 1,
+    marginHorizontal: 5,
+    paddingVertical: 22,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    ...CARD_SHADOW,
+  },
+  rakaatNum: { fontSize: 30, fontFamily: F.extra, letterSpacing: -1, lineHeight: 36 },
+  rakaatCardLabel: {
+    fontSize: 10.5,
+    fontFamily: F.bold,
+    letterSpacing: 1.4,
+    marginTop: 4,
+    textTransform: 'uppercase',
+  },
+
+  taraweehCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 20,
+    borderWidth: 1,
+    ...CARD_SHADOW,
+  },
+  taraweehBadge: {
+    width: 46,
+    height: 46,
+    borderRadius: 15,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  taraweehText: { flex: 1, marginLeft: 14 },
+  taraweehTitle: { fontSize: 16.5, fontFamily: F.bold, letterSpacing: -0.2 },
+  taraweehSub: { fontSize: 12.5, fontFamily: F.medium, marginTop: 2 },
+
+  tipCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+    marginTop: 20,
+  },
+  tipText: { flex: 1, fontSize: 12.5, fontFamily: F.regular, lineHeight: 18 },
+
+  // Prayer — calibration
+  calibScreen: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 28 },
+  calibBadge: {
+    width: 108,
+    height: 108,
+    borderRadius: 54,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 8 },
+    shadowRadius: 20,
+    elevation: 8,
+    marginBottom: 26,
+  },
+  calibStep: { fontSize: 10.5, fontFamily: F.bold, letterSpacing: 1.8, marginBottom: 8 },
+  calibTitle: { fontSize: 25, fontFamily: F.extra, letterSpacing: -0.6, textAlign: 'center' },
+  calibHint: {
+    fontSize: 14,
+    fontFamily: F.regular,
+    textAlign: 'center',
+    marginTop: 10,
+    lineHeight: 21,
+    paddingHorizontal: 10,
+  },
+  luxPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 18,
+    paddingVertical: 10,
+    borderRadius: 22,
+    borderWidth: 1,
+  },
+  luxPillText: { fontSize: 17, fontFamily: F.bold, letterSpacing: 0.3 },
+
+  // Prayer — live
+  prayerBody: { flex: 1, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 26 },
+  targetPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    gap: 7,
+    paddingHorizontal: 15,
+    paddingVertical: 8,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginBottom: 22,
+  },
+  targetPillText: { fontSize: 11, fontFamily: F.bold, letterSpacing: 1.3 },
+
+  counterCard: {
+    alignItems: 'center',
+    paddingVertical: 26,
+    paddingHorizontal: 22,
+    borderRadius: 24,
+    borderWidth: 1,
+    ...CARD_SHADOW,
+  },
+  bigCount: { fontSize: 84, fontFamily: F.extra, lineHeight: 94, letterSpacing: -3 },
+  counterLabel: { fontSize: 10.5, fontFamily: F.bold, letterSpacing: 2, marginTop: 2 },
+  progressTrack: {
+    width: '100%',
+    height: 6,
+    borderRadius: 3,
+    marginTop: 18,
+    overflow: 'hidden',
+  },
+  progressFill: { height: '100%', borderRadius: 3 },
+
+  prayerRow: { flexDirection: 'row', gap: 12, marginTop: 14 },
+  smallCard: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 20,
+    borderRadius: 20,
+    borderWidth: 1,
+    gap: 6,
+  },
+  smallCount: { fontSize: 44, fontFamily: F.extra, lineHeight: 50, letterSpacing: -1.5 },
+
+  stopButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 9,
+    paddingVertical: 16,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginTop: 22,
+  },
+  stopButtonText: { fontSize: 15.5, fontFamily: F.bold, letterSpacing: 0.2 },
+
+  // Pages
+  pageScroll: { padding: 20, paddingBottom: 36 },
+  logsHeader: { paddingHorizontal: 20, paddingTop: 8 },
+  pageHeaderRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  pageTitle: { fontSize: 26, fontFamily: F.extra, letterSpacing: -0.6 },
+  pageSub: {
+    fontSize: 13,
+    fontFamily: F.regular,
+    lineHeight: 19,
+    marginTop: 6,
+    marginBottom: 18,
+  },
+  countPill: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  countPillText: { fontSize: 12, fontFamily: F.bold },
+
+  // Settings
+  group: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 4, ...CARD_SHADOW },
+  groupDivider: { height: 1, marginHorizontal: 16 },
+  settingRow: { flexDirection: 'row', alignItems: 'center', paddingVertical: 16, paddingHorizontal: 12 },
+  settingIcon: {
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  settingTextWrap: { flex: 1, marginLeft: 13, marginRight: 10 },
+  settingLabel: { fontSize: 15.5, fontFamily: F.semi, letterSpacing: -0.1 },
+  settingHint: { fontSize: 12, fontFamily: F.regular, marginTop: 3, lineHeight: 16 },
+
+  // Logs
+  logCard: {
+    flex: 1,
+    marginHorizontal: 20,
+    marginBottom: 20,
+    padding: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    ...CARD_SHADOW,
+  },
+  logRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 9, marginBottom: 10 },
+  logDot: { width: 5, height: 5, borderRadius: 3, marginTop: 6 },
+  logText: { flex: 1, fontSize: 12, fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace', lineHeight: 17 },
+  emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 50, gap: 12 },
+  emptyText: { fontSize: 13, fontFamily: F.regular, textAlign: 'center', paddingHorizontal: 24 },
+
+  // Help
+  stepCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+    padding: 15,
+    borderRadius: 18,
+    borderWidth: 1,
+    marginBottom: 11,
+  },
+  stepNum: {
+    width: 34,
+    height: 34,
+    borderRadius: 11,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepNumText: { fontSize: 15, fontFamily: F.bold },
+  stepText: { flex: 1, fontSize: 14, fontFamily: F.regular, lineHeight: 20 },
+
+  // Share
+  shareScroll: { padding: 24, paddingBottom: 40, alignItems: 'center', justifyContent: 'center', flexGrow: 1 },
+  shareSub: {
+    fontSize: 13.5,
+    fontFamily: F.regular,
+    lineHeight: 20,
+    textAlign: 'center',
+    marginTop: 10,
+    marginBottom: 28,
+    paddingHorizontal: 12,
+  },
+  primaryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    paddingHorizontal: 34,
+    paddingVertical: 16,
+    borderRadius: 18,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 6,
+  },
+  primaryButtonText: { fontSize: 16, fontFamily: F.bold, letterSpacing: 0.2 },
+});
