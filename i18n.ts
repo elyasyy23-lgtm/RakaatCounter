@@ -1,4 +1,4 @@
-// Lightweight i18n for Rakaat Tracker.
+// Lightweight i18n for Khushu (خشوع).
 //
 // The English string IS the key, so the dictionary stays readable and a missing
 // key simply falls back to English instead of crashing. `translate()` also turns
@@ -11,7 +11,7 @@ type Entry = { en: string; fa: string };
 
 export const STRINGS: Record<string, Entry> = {
   // Drawer / brand
-  'Rakaat Tracker': { en: 'Rakaat Tracker', fa: 'Rakaat Tracker' },
+  'Rakaat Tracker': { en: 'Khushu', fa: 'خشوع' },
   'Enhancing Your Salah': { en: 'Enhancing Your Salah', fa: 'یاریگر نماز شما' },
   'Enhancing Your Salah Experience': {
     en: 'Enhancing Your Salah Experience',
@@ -25,7 +25,7 @@ export const STRINGS: Record<string, Entry> = {
   'Open menu': { en: 'Open menu', fa: 'باز کردن منو' },
 
   // Home
-  RakaatCounter: { en: 'RakaatCounter', fa: 'RakaatCounter' },
+  RakaatCounter: { en: 'Khushu', fa: 'خشوع' },
   "TODAY'S PRAYERS": { en: "TODAY'S PRAYERS", fa: 'نمازهای امروز' },
   Fajr: { en: 'Fajr', fa: 'فجر' },
   Dhuhr: { en: 'Dhuhr', fa: 'ظهر' },

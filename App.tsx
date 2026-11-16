@@ -42,7 +42,7 @@ import {
   Inter_800ExtraBold,
 } from '@expo-google-fonts/inter';
 
-const APP_VERSION = '1.6.0';
+const APP_VERSION = '1.7.0';
 
 // Calibration = one ambient measurement of this length. 10s of samples gives a
 // stable average instead of one jittery reading.
@@ -293,7 +293,7 @@ export default function App() {
         <View style={[styles.heroBadge, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
           <MaterialCommunityIcons name="mosque" size={64} color={theme.accent} />
         </View>
-        <Text style={[styles.bootText, { color: theme.textMuted }]}>RakaatCounter</Text>
+        <Text style={[styles.bootText, { color: theme.textMuted }]}>{t('RakaatCounter')}</Text>
         <ActivityIndicator color={theme.accent} style={{ marginTop: 24 }} />
       </View>
     );
@@ -1682,11 +1682,11 @@ function HelpScreen() {
 // languages. The Share screen picks the one matching the CURRENT app language.
 const SHARE_URL = 'https://elyasyy23-lgtm.github.io/FocusBlocker/';
 const SHARE_MESSAGE_FA =
-  'تمرکز کامل در نماز، بدون نگرانی از فراموشی رکعت‌ها. 🌙\n' +
-  'شمارنده هوشمند رکعت با قابلیت تشخیص خودکار سجده. همین حالا تجربه کنید:\n' +
+  'خشوع — تمرکز کامل در نماز، بدون نگرانی از فراموشی رکعت‌ها. 🌙\n' +
+  'شمارنده هوشمند رکعت با تشخیص خودکار سجده. همین حالا تجربه کنید:\n' +
   SHARE_URL;
 const SHARE_MESSAGE_EN =
-  'Complete focus in prayer, without worrying about forgetting your rakats. 🌙\n' +
+  'Khushu — complete focus in prayer, without worrying about forgetting your rakats. 🌙\n' +
   'A smart rakat counter that detects sujud automatically. Try it now:\n' +
   SHARE_URL;
 

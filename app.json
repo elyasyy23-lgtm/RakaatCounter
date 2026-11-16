@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "RakaatCounter",
-    "slug": "RakaatCounter",
-    "version": "1.6.0",
+    "name": "خشوع",
+    "slug": "khushu",
+    "version": "1.7.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -12,15 +12,25 @@
     "android": {
       "package": "com.elyasyy23.rakaatcounter",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#C87775",
         "foregroundImage": "./assets/android-icon-foreground.png",
-        "backgroundImage": "./assets/android-icon-background.png",
-        "monochromeImage": "./assets/android-icon-monochrome.png"
+        "backgroundImage": "./assets/android-icon-background.png"
       },
       "predictiveBackGestureEnabled": false
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash-icon.png",
+          "imageWidth": 220,
+          "resizeMode": "contain",
+          "backgroundColor": "#C87775"
+        }
+      ]
+    ]
   }
 }
