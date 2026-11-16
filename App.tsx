@@ -406,6 +406,17 @@ function PrayerScreen({ route, navigation }: any) {
     completedRef.current = false;
   }, []);
 
+  // Re-runs the 3s ambient + 3s sujud calibration without touching the prayer
+  // counters — used when the room light changes and the stored thresholds stop
+  // matching (symptom: "Sujud START" logs forever, never "Sujud END").
+  const recalibrate = useCallback(() => {
+    // Drop any in-progress sujud so the first dark reading after calibration
+    // starts a fresh sujud instead of being compared against a stale one.
+    setIsSujud(false);
+    setAppState('CALIBRATING_AMBIENT');
+    addLog('Recalibration started.');
+  }, [addLog]);
+
   // A new prayer session (fresh id handed over by Home) starts from absolute
   // zero. This screen stays mounted between visits, so a remount cannot be
   // relied on to clear the previous prayer's numbers.
@@ -539,11 +550,25 @@ function PrayerScreen({ route, navigation }: any) {
   return (
     <SafeAreaView edges={['top']} style={[styles.screen, { backgroundColor: theme.bg }]}>
       <View style={styles.prayerBody}>
-        <View style={[styles.targetPill, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
-          <MaterialCommunityIcons name="target" size={15} color={theme.accent} />
-          <Text style={[styles.targetPillText, { color: theme.accent }]}>
-            TARGET {targetRakaat} RAKAAT
-          </Text>
+        <View style={styles.prayerTopRow}>
+          <View style={styles.prayerTopSpacer} />
+          <View style={[styles.targetPill, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
+            <MaterialCommunityIcons name="target" size={15} color={theme.accent} />
+            <Text style={[styles.targetPillText, { color: theme.accent }]}>
+              TARGET {targetRakaat} RAKAAT
+            </Text>
+          </View>
+          <View style={[styles.prayerTopSpacer, styles.prayerTopSpacerEnd]}>
+            <TouchableOpacity
+              activeOpacity={0.7}
+              onPress={recalibrate}
+              accessibilityRole="button"
+              accessibilityLabel="Recalibrate light sensor"
+              style={[styles.recalButton, { backgroundColor: theme.surface, borderColor: theme.border }]}
+            >
+              <Ionicons name="refresh" size={17} color={theme.accent} />
+            </TouchableOpacity>
+          </View>
         </View>
 
         <View
@@ -1078,6 +1103,22 @@ const styles = StyleSheet.create({
 
   // Prayer — live
   prayerBody: { flex: 1, paddingHorizontal: 20, paddingTop: 12, paddingBottom: 26 },
+  prayerTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 22,
+  },
+  prayerTopSpacer: { width: 40 },
+  prayerTopSpacerEnd: { alignItems: 'flex-end' },
+  recalButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   targetPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1087,7 +1128,6 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 20,
     borderWidth: 1,
-    marginBottom: 22,
   },
   targetPillText: { fontSize: 11, fontFamily: F.bold, letterSpacing: 1.3 },
 
