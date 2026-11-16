@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { LightSensor } from 'expo-sensors';
 import { activateKeepAwakeAsync, deactivateKeepAwake } from 'expo-keep-awake';
+import * as Clipboard from 'expo-clipboard';
 import { useFonts } from 'expo-font';
 import {
   SafeAreaProvider,
@@ -681,6 +682,19 @@ function LogsScreen() {
   const { isDarkMode } = useContext(SettingsContext);
   const { logs } = useContext(LogContext);
   const theme = getTheme(isDarkMode);
+  const [copied, setCopied] = useState(false);
+
+  // Copies every entry currently shown, newest first, one per line.
+  const copyLogs = async () => {
+    if (logs.length === 0) return;
+    try {
+      await Clipboard.setStringAsync(logs.join('\n'));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch (error: any) {
+      Alert.alert('Copy failed', String(error?.message || error));
+    }
+  };
 
   return (
     <View style={[styles.screen, { backgroundColor: theme.bg }]}>
@@ -690,6 +704,29 @@ function LogsScreen() {
           <View style={[styles.countPill, { backgroundColor: theme.accentSoft, borderColor: theme.border }]}>
             <Text style={[styles.countPillText, { color: theme.accent }]}>{logs.length}</Text>
           </View>
+          <View style={styles.headerSpacer} />
+          <TouchableOpacity
+            onPress={copyLogs}
+            disabled={logs.length === 0}
+            activeOpacity={0.7}
+            style={[
+              styles.copyButton,
+              {
+                backgroundColor: theme.accentSoft,
+                borderColor: theme.border,
+                opacity: logs.length === 0 ? 0.45 : 1,
+              },
+            ]}
+          >
+            <Ionicons
+              name={copied ? 'checkmark-outline' : 'copy-outline'}
+              size={15}
+              color={theme.accent}
+            />
+            <Text style={[styles.copyButtonText, { color: theme.accent }]}>
+              {copied ? 'Copied!' : 'Copy Logs'}
+            </Text>
+          </TouchableOpacity>
         </View>
         <Text style={[styles.pageSub, { color: theme.textMuted }]}>
           Live sensor and state events, newest first.
@@ -1116,6 +1153,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   countPillText: { fontSize: 12, fontFamily: F.bold },
+  headerSpacer: { flex: 1 },
+  copyButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  copyButtonText: { fontSize: 12.5, fontFamily: F.semi },
 
   // Settings
   group: { borderRadius: 20, borderWidth: 1, paddingHorizontal: 4, ...CARD_SHADOW },
