@@ -7,6 +7,11 @@ on:
     tags:
       - 'v*'
   workflow_dispatch:
+    inputs:
+      archs:
+        description: 'React Native ABIs (comma separated, e.g. arm64-v8a)'
+        required: false
+        default: 'arm64-v8a'
 
 concurrency:
   group: build-${{ github.ref }}
@@ -50,13 +55,23 @@ jobs:
 
       - name: Build release APK
         working-directory: android
-        run: ./gradlew assembleRelease -PreactNativeArchitectures=arm64-v8a,armeabi-v7a --no-daemon
+        env:
+          # Single ABI keeps the APK well under the size that times out on store uploads.
+          # Override per run from the Actions tab (workflow_dispatch) if a fat build is needed.
+          ARCHS: ${{ inputs.archs || 'arm64-v8a' }}
+        run: ./gradlew assembleRelease -PreactNativeArchitectures="$ARCHS" --no-daemon
 
       - name: Collect APK
         run: |
           mkdir -p artifacts
           cp android/app/build/outputs/apk/release/*.apk artifacts/RakaatCounter-release.apk
           ls -lh artifacts
+
+      - name: Report APK facts
+        run: |
+          APK=artifacts/RakaatCounter-release.apk
+          unzip -l "$APK" | grep -o 'lib/[^/]*/' | sort -u
+          echo "size: $(stat -c %s "$APK") bytes"
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
